@@ -35,7 +35,6 @@ char * make_query(char *host, char *page){
     return query;
 }
 
-
 /******************************************/
 
 int main(int argc, char *argv[])
