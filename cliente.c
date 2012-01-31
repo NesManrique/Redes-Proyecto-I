@@ -42,14 +42,12 @@ int main(int argc, char *argv[])
     struct sockaddr_in address;
     struct in_addr inaddr;
     struct hostent* host;
-    char *page;
     int sock;
     int sent, tmp;
     char buffer[BUFSIZ+1];
     FILE *file;
     
 
-    page = PAGE;
     sent = 0;
    
     
@@ -80,8 +78,12 @@ int main(int argc, char *argv[])
     if(connect(sock, (struct sockaddr *)&address, sizeof(struct sockaddr)) < 0)
         error_handler("connection not established");
 
-    /*Build the query */ 
-    query = make_query(host->h_name, PAGE);
+    /*Build the query */
+    char ip[20];
+    inet_ntop(AF_INET,&(address.sin_addr),ip,20);
+    sprintf(ip,"%s%s",ip,":8080");
+    printf("ip %s\n\n",ip);
+    query = make_query(ip, PAGE);
     printf("\nQUERY: \n<BEGIN>%s<END>\n",query);
 
     /*
