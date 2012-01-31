@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     //Create socket
     if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     //die("socket");
-      printf("socket not created\n");
+      perror("socket not created\n");
     
     
     //Fill the structure with host data
