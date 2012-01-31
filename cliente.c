@@ -10,7 +10,7 @@
 
 /* Macro variables */
 #define NCLIENTS 5
-#define PAGE "index.html"
+#define PAGE "/datos.html"
 #define USERAGENT "WebHTML"
 
 /* Global variable */
@@ -27,7 +27,7 @@ void error_handler(char * msg){
 
 char * make_query(char *host, char *page){
 
-    char * message  = "\nGET /%s HTTP/1.0\r\nHost: %s\r\nUser-agent: %s\r\n\r\n";
+    char * message  = "\nGET %s HTTP/1.0\r\nHost: %s\r\nUser-agent: %s\r\n\r\n";
     query = (char *)malloc(strlen(host) + strlen(page) + strlen(message) +
                            strlen(USERAGENT));
     sprintf(query,message, page, host, USERAGENT);
@@ -73,16 +73,9 @@ int main(int argc, char *argv[])
     
     //Fill the structure with host data
     address.sin_family = AF_INET ; 
-    address.sin_port = htons(80);
-   
-    inet_ntop(AF_INET, &(address.sin_addr), buffer, sizeof(buffer) );
-    printf("ip en formato legible %s\n", buffer);
-    
+    address.sin_port = htons(8080);
     memcpy(&address.sin_addr , host->h_addr_list[0], sizeof(address.sin_addr));
     
-    inet_ntop(AF_INET, &(address.sin_addr), buffer, sizeof(buffer));
-    printf("----- %s\n", buffer);
- 
     /* Connect with host */
     if(connect(sock, (struct sockaddr *)&address, sizeof(struct sockaddr)) < 0)
         error_handler("connection not established");
@@ -105,14 +98,13 @@ int main(int argc, char *argv[])
     }
     
     memset(buffer, 0, sizeof(buffer));
-    if ((file = fopen("response","w")) == NULL)
+    if ((file = fopen("response","w+")) == NULL)
         error_handler("Error opening file... ");
 
     /* Receiving the data */
     while((tmp = recv(sock, buffer, BUFSIZ, 0)) > 0 ){
-
         fwrite(buffer, sizeof(char) ,sizeof(buffer), file);
-        
+        perror("");
         memset(buffer, 0, tmp); 
 
     } 
@@ -120,6 +112,9 @@ int main(int argc, char *argv[])
     if(tmp < 0){
         error_handler("Error receiving data...");
     }
+    
+    fread(stdout,sizeof(char),sizeof(buffer),file);
+    fflush(stdout);
    
     free(query); 
     close(sock);
