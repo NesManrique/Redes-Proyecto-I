@@ -99,7 +99,6 @@ void main(int argc, char *argv[]){
     if ((listensock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         error_handler("Error creating server socket...\n");
 
-    
     /* Populate the struct */
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY ;
