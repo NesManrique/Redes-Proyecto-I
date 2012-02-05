@@ -19,18 +19,27 @@ int sent, got, tmp, i, status,pid,flag, flag2;
 char recvbuf[1024];
 char sendbuf[1024];
 char query[1024];
+char line[2000];
 char *serveraddr, *serverport, *localport, *time;
 char serverip[20];
 char archv[500];
+char response[85] = "La informacion aun no esta disponible por favor reintente su solicitud mas tarde\n"; 
 struct in_addr inaddr;
 struct hostent* host;
 struct sockaddr_storage data ;
 struct sockaddr_in server, address;
 FILE *file, *point, *cache;
 
-
 /******************************************/
 /* Helper functions */
+
+void ext_handler(int sig){
+    //printf("Wake up call ... !!! - Catched signal: %d ... !!\n", sig); 
+    if(kill(0,SIGTERM)<0) //Kill the childs 
+        perror("Error killing childs");
+        
+    //(void) signal(SIGINT,SIG_DFL); 
+}
 
 void make_query(char *host, char *page){
 
@@ -70,7 +79,7 @@ void parser(int argc, char *argv[]){
                 }
 
                 sprintf(serverip,"%s",inet_ntoa(*(struct in_addr *) host->h_addr));
-                printf("Psensor Host: %s\n", host->h_name);
+                printf("Wellcome to Psiesta\n\nPsensor Host: %s\n", host->h_name);
                 serverport = argv[4];
                 localport = argv[6];
                 time = argv[8];
@@ -88,9 +97,11 @@ void parser(int argc, char *argv[]){
 
 void main(int argc, char *argv[]){
 
+    (void) signal(SIGINT,ext_handler);
+
     parser(argc,argv);
 
-    printf("IP %s\nServPort %s\nLocalPort %s\nTime %s\n", serverip,
+    printf("IP %s\nServPort %s\nLocalPort %s\nTime %s\n\n", serverip,
             serverport, localport, time);
 
     memset(sendbuf,0,sizeof(sendbuf));
@@ -135,19 +146,20 @@ void main(int argc, char *argv[]){
                     continue;
                 }
 
+                printf("Updating %s...\n\n",nextfile);
+
                 //Build the query for psensor 
                 char ip[20];
                 sprintf(ip,"%s%s%s",serverip,":",serverport);
                 make_query(ip, nextfile);
-                printf("\n**Cache Manager Child**\nQUERY: \n<BEGIN>%s<END>\n",query);
+                //printf("\n**Cache Manager Child**\nQUERY: \n<BEGIN>%s<END>\n",query);
 
                 //Send the query to server
                 tmp = send(s_psensor, query, strlen(query), 0);
-                printf("\n**Cache Manager Child**\ntmp send to psensor %d\n",tmp);
+                //printf("\n**Cache Manager Child**\ntmp send to psensor %d\n",tmp);
                 if(tmp<0)
                     perror("**Cache Manager Child**\nError sending query");
 
-                printf("\nnextfile %s\n",nextfile);
 
                 memset(recvbuf, 0, 1024);
                
@@ -156,8 +168,8 @@ void main(int argc, char *argv[]){
                 flag2=1;
                 while((tmp = recv(s_psensor, recvbuf, 1023, 0)) > 0 ){
 
-                    printf("\n**Cache Manager Child**\ntmp from psensor %d\n",tmp);
-                    fwrite(recvbuf, sizeof(char) ,tmp, stdout);
+                    //printf("\n**Cache Manager Child**\ntmp from psensor %d\n",tmp);
+                    //fwrite(recvbuf, sizeof(char) ,tmp, stdout);
 
                     if(flag && 200==atoi(&recvbuf[9])){
 
@@ -188,7 +200,9 @@ void main(int argc, char *argv[]){
                 }
 
                 memset(query,0,sizeof(query));
-                fclose(file);
+                if(!flag2)
+                    fclose(file);
+
                 close(s_psensor);
             }
         }
@@ -202,6 +216,7 @@ void main(int argc, char *argv[]){
     /* Creating socket between server and client */
     if ((listensock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("Error creating server socket");
+        kill(0,SIGTERM);
         exit(1);
     }
 
@@ -213,12 +228,14 @@ void main(int argc, char *argv[]){
     //Binding the socket
     if(bind(listensock, (struct sockaddr * ) &server, sizeof(server)) < 0){
         perror("Binding socket not created");
+        kill(0,SIGTERM);
         exit(1);
     }
 
     //Put the socket to listen
     if (listen(listensock, NCLIENTS) < 0){
         perror("Listen call failed");
+        kill(0,SIGTERM);
         exit(1);
     }
 
@@ -231,6 +248,7 @@ void main(int argc, char *argv[]){
         b_psiesta = accept(listensock,(struct sockaddr *)&data, &size_data);
         if (b_psiesta < 0){
             perror("Error accepting connection from browser");
+            kill(0,SIGTERM);
             exit(1);
         }
 
@@ -240,13 +258,14 @@ void main(int argc, char *argv[]){
             perror("Error forking");
             close(listensock);
             close(b_psiesta);
+            kill(0,SIGTERM);
             exit(1);
         }
         if(pid==0){
             close(listensock);
             // Receiving the data from browser 
             tmp = recv(b_psiesta, &recvbuf[got], 1023, 0);
-            printf("\ntmp recv from browser %d\n",tmp);
+            //printf("\ntmp recv from browser %d\n",tmp);
             //fwrite(&recvbuf[got], sizeof(char) ,tmp, stdout);
 
             if(tmp<0)
@@ -280,9 +299,29 @@ void main(int argc, char *argv[]){
             //Connecting psensor 
             if(connect(s_psensor, (struct sockaddr *)&address, sizeof(struct sockaddr))<0){
                 //If psensor is not active search cache memory
+                if(i){
                     //If we got the archive, send it to browser
-                //If we dont, send a message
-                printf("No connection to server: \n");
+                    if((file=fopen(archv, "r"))==NULL)
+                        perror("Error opening file");
+
+                    memset(line,0,2000);
+
+                    fread(line,sizeof(char), sizeof(line), file);
+                    tmp = send(b_psiesta,line,strlen(line),0);
+                    //printf("BUSCANDO EN CACHE... linewidth %d, tmp send to browser%d\n",(int)strlen(line),tmp);
+                    printf("Found %s in cache, sending it to browser...\n\n",archv);
+                    if(tmp<0)
+                        perror("Error sending response to browser");
+
+                    fclose(file); 
+                }else{
+                    //If we dont, send a message
+                    //printf("no connection to server\n%s\n",response);
+                    tmp = send(b_psiesta, response, strlen(response), 0);
+                    if(tmp<0)
+                        perror("Error sending response to browser");
+                    
+                }
                 exit(1);
             }
 
@@ -290,30 +329,30 @@ void main(int argc, char *argv[]){
             char ip[20];
             sprintf(ip,"%s%s%s",serverip,":",serverport);
             make_query(ip, archv);
-            printf("\nQUERY: \n<BEGIN>%s<END>\n",query);
+            //printf("\nQUERY: \n<BEGIN>%s<END>\n",query);
 
             //Send query to psensor
             tmp = send(s_psensor, query, strlen(query), 0);
-            printf("\ntmp send to psensor %d\n",tmp);
+            //printf("\ntmp send to psensor %d\n",tmp);
             if(tmp<0)
                 perror("Error sending query");
 
             memset(recvbuf, 0, 1024);
             
-            printf("\narchv %s\n",archv);
+            //printf("\narchv %s\n",archv);
 
             //Receiving the data and overwriting the file
             flag=1;
             flag2=1;
             while((tmp = recv(s_psensor, recvbuf, 1023, 0))>0){
 
-                printf("\ntmp recv from psensor %d\n",tmp);
+                //printf("\ntmp recv from psensor %d\n",tmp);
                 //fwrite(recvbuf, sizeof(char) ,tmp, stdout);
 
-                printf("\nflag %d - code %d\n", flag , atoi(&recvbuf[9]));
+                //printf("\nflag %d - code %d\n", flag , atoi(&recvbuf[9]));
 
                 if(flag && 200==atoi(&recvbuf[9])){
-                    printf("first loop if, i is %d\n",i);
+                    //printf("first loop if, i is %d\n",i);
 
                     //If first loop and no problems recving
                     //open file archv
@@ -359,26 +398,42 @@ void main(int argc, char *argv[]){
                 fclose(file);
 
             if(flag2==1){
-                //Psensor is up but file its not found 
+                //Psensor is up but couldnt retrieve information
                 //Send to browser
-                char response[60] = "Psensor was active but requested file was not found\n";
-                tmp = send(b_psiesta, response, strlen(response), 0);
+                if(i){
+                    //If we got the archive, send it to browser
+                    if((file=fopen(archv, "r"))==NULL)
+                        perror("Error opening file");
 
-                if(tmp<0)
-                    perror("Error sending response to browser");
+                    memset(line,0,2000);
 
+                    fread(line,sizeof(char), sizeof(line), file);
+                    tmp = send(b_psiesta,line,strlen(line),0);
+                    //printf("BUSCANDO EN CACHE... linewidth %d, tmp send to browser%d\n",(int)strlen(line),tmp);
+                    printf("Found %s in cache, sending it to browser...\n\n",archv);
+                    if(tmp<0)
+                        perror("Error sending response to browser");
+
+                    fclose(file); 
+                }else{
+                    //If we dont, send a message
+                    //printf("Problem with info\n%s\n",response);
+                    tmp = send(b_psiesta, response, strlen(response), 0);
+                    if(tmp<0)
+                        perror("Error sending response to browser");
+                }
             }else if(flag2==0){
                 //Psensor is up and file was found
                 if((file = fopen(archv,"r")) == NULL)
                     perror("Error opening file");
 
-                char line[2000];
-
                 memset(line,0,2000);
+
+                printf("Sending file %s from psensor to browser...\n\n",archv);
 
                 fread(line,sizeof(char), sizeof(line), file);
                 tmp = send(b_psiesta,line,strlen(line),0);
-                printf("linewidth %d, tmp send to browser %d\n",(int)strlen(line),tmp);
+                //printf("linewidth %d, tmp send to browser %d\n",(int)strlen(line),tmp);
                 if(tmp<0)
                     perror("Error sending response to browser");
 
@@ -391,14 +446,5 @@ void main(int argc, char *argv[]){
         }
         close(b_psiesta);
     }
-    
-    //signal(pid,SIGTERM); //Kill the childs 
-
-    close(listensock);
-
-    //if (b_psiesta < 0)
-    //    perror("Error accepting connection from browser: \n");
-
-    //wait(&status);
     
 }
