@@ -21,7 +21,7 @@ char sendbuf[1024];
 char query[1024];
 char *serveraddr, *serverport, *localport, *time;
 char serverip[20];
-char archv[15];
+char archv[500];
 struct in_addr inaddr;
 struct hostent* host;
 struct sockaddr_storage data ;
@@ -102,15 +102,15 @@ void main(int argc, char *argv[]){
     /* This child updates the files  */
     pid = fork();
     if(pid<0){
-        perror("Error forking: \n");
+        perror("Error forking");
         close(listensock);
         exit(1);
 
     }else if(pid==0){
         close(listensock);
-        char nextfile[15];
+        char nextfile[500];
         if((point = fopen("Files", "w+")) == NULL)
-            perror("Error opening the cache file: \n");
+            perror("**Cache Manager Child**\nError opening the cache file");
 
         //Fill the structure with host data
         address.sin_family = AF_INET; 
@@ -125,52 +125,66 @@ void main(int argc, char *argv[]){
 
                 //Create socket for this child
                 if((s_psensor=socket(AF_INET, SOCK_STREAM, 0))<0)
-                    perror("Error creating file manager child: \n");
+                    perror("**Cache Manager Child**\nError creating file manager child");
 
-                //Send query again 
+                //Connecting psensor 
                 if(connect(s_psensor, (struct sockaddr *)&address, sizeof(struct sockaddr))<0){
                     //The server psensor is down so this child continues with
                     //next file
-                    printf("No hubo conexion\n");
+                    printf("**Cache Manager Child**\nNo connection to server\n");
                     continue;
                 }
 
-                //Build the query 
+                //Build the query for psensor 
                 char ip[20];
                 sprintf(ip,"%s%s%s",serverip,":",serverport);
-                //printf("ip %s\n\n",ip);
                 make_query(ip, nextfile);
-                printf("\nQUERY: \n<BEGIN>%s<END>\n",query);
+                printf("\n**Cache Manager Child**\nQUERY: \n<BEGIN>%s<END>\n",query);
 
-                //Send the query to server. If there's something that has not been
-                //sent, the rest is sent.
-                sent =0;
-                while(sent < strlen(query)){
-                    tmp = send(s_psensor, &(query[sent]), strlen(query) - sent , 0);
-                    if(tmp<0)
-                        perror("Error sending query");
+                //Send the query to server
+                tmp = send(s_psensor, query, strlen(query), 0);
+                printf("\n**Cache Manager Child**\ntmp send to psensor %d\n",tmp);
+                if(tmp<0)
+                    perror("**Cache Manager Child**\nError sending query");
 
-                    sent += tmp;
-                }
-
-                printf("\nnextfile %sc\n",nextfile);
+                printf("\nnextfile %s\n",nextfile);
 
                 memset(recvbuf, 0, 1024);
-                if ((file = fopen(nextfile,"w")) == NULL)
-                    perror("Error opening file: \n");
-
-                // Receiving the data 
+               
+                // Receiving the data and overwriting the cache
+                flag=1;
+                flag2=1;
                 while((tmp = recv(s_psensor, recvbuf, 1023, 0)) > 0 ){
 
-                    printf("tmp %d\n",tmp);
+                    printf("\n**Cache Manager Child**\ntmp from psensor %d\n",tmp);
                     fwrite(recvbuf, sizeof(char) ,tmp, stdout);
 
-                    fwrite(recvbuf, sizeof(char) ,tmp, file);
-                    memset(recvbuf, 0, tmp);
+                    if(flag && 200==atoi(&recvbuf[9])){
+
+                        //If first loop and no problems recving
+                        //open file nextfile
+                        if ((file = fopen(nextfile,"w")) == NULL)
+                            perror("**Cache Manager Child**\nError opening file");
+
+                        if(fwrite(recvbuf, sizeof(char) ,tmp, file)!=tmp)
+                            printf("**Cache Manager Child**\nError writing in file %s\n",nextfile);
+                        memset(recvbuf, 0, tmp);
+                        flag2=0; //flag2=0 no problems in first chunk of data
+                    }
+
+                    if(!flag && !flag2){
+                        //Store next chuncks knowing its not the first loop
+                        //and there was no problem with the first
+                        if(fwrite(recvbuf, sizeof(char) ,tmp, file)!=tmp)
+                            printf("**Cache Manager Child**\nError writing in file %s\n",nextfile);
+                        memset(recvbuf, 0, tmp);
+                    }
+
+                    flag=0;
                 }
 
                 if(tmp < 0){
-                    perror("Error receiving data: \n");
+                    perror("**Cache Manager Child**\nError receiving data");
                 }
 
                 memset(query,0,sizeof(query));
@@ -187,7 +201,7 @@ void main(int argc, char *argv[]){
 
     /* Creating socket between server and client */
     if ((listensock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        perror("Error creating server socket: \n");
+        perror("Error creating server socket");
         exit(1);
     }
 
@@ -232,13 +246,13 @@ void main(int argc, char *argv[]){
             close(listensock);
             // Receiving the data from browser 
             tmp = recv(b_psiesta, &recvbuf[got], 1023, 0);
-            printf("tmp recv browser %d\n",tmp);
-            fwrite(&recvbuf[got], sizeof(char) ,tmp, stdout);
+            printf("\ntmp recv from browser %d\n",tmp);
+            //fwrite(&recvbuf[got], sizeof(char) ,tmp, stdout);
 
             if(tmp<0)
                 perror("Error receiving data");
     
-            memset(archv,0,15);
+            memset(archv,0,500);
 
             //Parsing the file to retrieve from psensor
             for(i=5;recvbuf[i]!=' ';i++){
@@ -250,12 +264,9 @@ void main(int argc, char *argv[]){
             i=1; //File archv exists
             
             if((file = fopen(archv,"r")) == NULL)
-                i = 0; //If archv doesnt exists
+                i = 0; //i=0 If archv doesnt exists
             else
                 fclose(file);
-            
-
-            printf("i %d\n\n", i);
 
             //Fill the structure with host data
             address.sin_family = AF_INET; 
@@ -269,7 +280,7 @@ void main(int argc, char *argv[]){
             //Connecting psensor 
             if(connect(s_psensor, (struct sockaddr *)&address, sizeof(struct sockaddr))<0){
                 //If psensor is not active search cache memory
-                //If we got the archive send it to browser
+                    //If we got the archive, send it to browser
                 //If we dont, send a message
                 printf("No connection to server: \n");
                 exit(1);
@@ -283,47 +294,48 @@ void main(int argc, char *argv[]){
 
             //Send query to psensor
             tmp = send(s_psensor, query, strlen(query), 0);
-            printf("tmp send psensor %d\n\n",tmp);
+            printf("\ntmp send to psensor %d\n",tmp);
             if(tmp<0)
                 perror("Error sending query");
 
             memset(recvbuf, 0, 1024);
             
-            printf("archv %s c\n",archv);
+            printf("\narchv %s\n",archv);
 
             //Receiving the data and overwriting the file
             flag=1;
             flag2=1;
             while((tmp = recv(s_psensor, recvbuf, 1023, 0))>0){
 
-                printf("tmp recv psensor %d\n\n",tmp);
-                fwrite(recvbuf, sizeof(char) ,tmp, stdout);
+                printf("\ntmp recv from psensor %d\n",tmp);
+                //fwrite(recvbuf, sizeof(char) ,tmp, stdout);
 
-                printf("flag %d - code %d\n", flag , atoi(&recvbuf[9]));
+                printf("\nflag %d - code %d\n", flag , atoi(&recvbuf[9]));
 
-                if(flag && 404!=atoi(&recvbuf[9])){
+                if(flag && 200==atoi(&recvbuf[9])){
+                    printf("first loop if, i is %d\n",i);
+
                     //If first loop and no problems recving
                     //open file archv
                     if((file = fopen(archv,"w")) == NULL)
                         perror("Error opening file");
 
-                    printf("i adentro %d\n", i);
                     if(!i){
                         //i=0 if file doesnt exists
-                        //If file doesnt exists, write in the cache directorie
-                        printf("i adentro ***  %d\n", i);
+                        //If file doesnt exists, add it in the cache file
                         if((cache = fopen("Files","a"))==NULL)
                             perror("Error opening file");
 
                         if(fwrite(archv, sizeof(char), strlen(archv), cache)!=strlen(archv))
-                            printf("Error writing in file");
+                            printf("Error writing in cache file\n");
                         if(fputc('\n',cache)<0)
-                            printf("Error writing char in file");
+                            printf("Error writing char in cache file\n");
 
                         fclose(cache);
                     }
 
-                    fwrite(recvbuf, sizeof(char), tmp, file);
+                    if(fwrite(recvbuf, sizeof(char), tmp, file)!=tmp)
+                        printf("Error writing in file %s\n",archv);
                     memset(recvbuf, 0, tmp);
                     flag2=0; //flag2=0 no problems in first chunk of data
                 }
@@ -331,57 +343,44 @@ void main(int argc, char *argv[]){
                 if(!flag && !flag2){
                     //Store next chuncks knowing its not the first loop
                     //and there was no problem with the first
-                    printf("PRUEBA \n");
-                    fwrite(recvbuf, sizeof(char), tmp, file);
+                    if(fwrite(recvbuf, sizeof(char), tmp, file)!=tmp)
+                        printf("Error writing in file %s\n",archv);
                     memset(recvbuf, 0, tmp);
                 }
 
                 flag=0;
-                
             }
 
             if(tmp < 0){
                 perror("Error receiving data from psensor");
             }
 
-
-            printf("HOLAAAAAAA\n");
             if(!flag2)
                 fclose(file);
-
-
-            printf("aqui\n");
-            //perror("");
 
             if(flag2==1){
                 //Psensor is up but file its not found 
                 //Send to browser
-    
                 char response[60] = "Psensor was active but requested file was not found\n";
-                printf("hola %s\n",response);
                 tmp = send(b_psiesta, response, strlen(response), 0);
 
                 if(tmp<0)
                     perror("Error sending response to browser");
 
-                printf("chao tmp %d\n",tmp);
-
             }else if(flag2==0){
                 //Psensor is up and file was found
                 if((file = fopen(archv,"r")) == NULL)
                     perror("Error opening file");
-                
-                char line[1024];
-                printf("Entre en flag2\n");
 
-                //Send from file to browser
-                //while(fscanf(file,"%[^\n]\n",line)!=EOF){ 
-                    fread(line,sizeof(char), sizeof(line), file);
-                    tmp = send(b_psiesta,line,strlen(line),0);
-                    printf("linewidth %d, tmp send to browser %d\n",(int)strlen(line),tmp);
-                    if(tmp<0)
-                        perror("Error sending response to browser");
-                //}
+                char line[2000];
+
+                memset(line,0,2000);
+
+                fread(line,sizeof(char), sizeof(line), file);
+                tmp = send(b_psiesta,line,strlen(line),0);
+                printf("linewidth %d, tmp send to browser %d\n",(int)strlen(line),tmp);
+                if(tmp<0)
+                    perror("Error sending response to browser");
 
                 fclose(file);
             }
